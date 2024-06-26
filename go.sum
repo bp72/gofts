@@ -1,2 +1,8 @@
+github.com/mfonda/simhash v0.0.0-20151007195837-79f94a1100d6 h1:bjfMeqxWEJ6IRUvGkiTkSwx0a6UdQJsbirRSoXogteY=
+github.com/mfonda/simhash v0.0.0-20151007195837-79f94a1100d6/go.mod h1:WVJJvUw/pIOcwu2O8ZzHEhmigq2jzwRNfJVRMJB7bR8=
 github.com/rjohnsondev/golibstemmer v0.0.0-20140617160455-1bbcbebdf690 h1:JTZJ+BDWwpweKEBMG4B/SmrcY2gnh01LgyGXwGNUcPI=
 github.com/rjohnsondev/golibstemmer v0.0.0-20140617160455-1bbcbebdf690/go.mod h1:uRs+L3KpTk5XHACOK6+uybWVgi5LbP4dtaAB/FkLF7E=
+github.com/safeie/simhash v0.0.0-20180802122518-e2063556f9d6 h1:aJM0XPUVwS04mHir88HhnN3UWSuZszlitIGY8Htx47I=
+github.com/safeie/simhash v0.0.0-20180802122518-e2063556f9d6/go.mod h1:p59f71TXj8dHY4DBl/LRZhmdREvGw1vqOF+kyzzFwuc=
+golang.org/x/text v0.16.0 h1:a94ExnEXNtEwYLGJSIUxnWoxoRz/ZcCsV63ROupILh4=
+golang.org/x/text v0.16.0/go.mod h1:GhwF1Be+LQoKShO3cGOHzqOgRrGaYc9AvblQOmPVHnI=

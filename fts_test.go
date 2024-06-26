@@ -19,7 +19,12 @@ func (td *TestDocument) AsText() string {
 }
 
 func TestGetTokens(t *testing.T) {
-	fts := NewFullTextSearchIndex()
+	params := FullTextSearchParams{
+		ExcludeBySimhash:   true,
+		MaxSearchResults:   150,
+		MinSimhashDistance: 4,
+	}
+	fts := NewFullTextSearchIndex(params)
 	tokens := fts.GetTokens("You and me toWer")
 	expect := []string{"tower"}
 
@@ -47,7 +52,12 @@ func TestGetTokens(t *testing.T) {
 }
 
 func TestIndexDoc(t *testing.T) {
-	fts := NewFullTextSearchIndex()
+	params := FullTextSearchParams{
+		ExcludeBySimhash:   true,
+		MinSimhashDistance: 4,
+		MaxSearchResults:   150,
+	}
+	fts := NewFullTextSearchIndex(params)
 
 	DocTexts := []string{
 		"You and me toWer",
@@ -83,7 +93,12 @@ func TestIndexDoc(t *testing.T) {
 }
 
 func TestSearch(t *testing.T) {
-	fts := NewFullTextSearchIndex()
+	params := FullTextSearchParams{
+		ExcludeBySimhash:   true,
+		MinSimhashDistance: 4,
+		MaxSearchResults:   150,
+	}
+	fts := NewFullTextSearchIndex(params)
 
 	DocTexts := []string{
 		"You and me toWer",

@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/mfonda/simhash"
 	stemmer "github.com/rjohnsondev/golibstemmer"
 )
 
@@ -16,19 +17,27 @@ const (
 	SearchTypeOR  SearchType = 1
 )
 
-type FullTextSearchIndex struct {
-	Documents map[int]*DocumContainer
-	Index     map[string]*RevIndex
-	Stemmer   *stemmer.Stemmer
-	StopWords map[string]bool
+type FullTextSearchParams struct {
+	ExcludeBySimhash   bool
+	MinSimhashDistance uint8
+	MaxSearchResults   int
 }
 
-func NewFullTextSearchIndex() *FullTextSearchIndex {
+type FullTextSearchIndex struct {
+	Documents            map[int]*DocumContainer
+	Index                map[string]*RevIndex
+	Stemmer              *stemmer.Stemmer
+	StopWords            map[string]bool
+	FullTextSearchParams FullTextSearchParams
+}
+
+func NewFullTextSearchIndex(params FullTextSearchParams) *FullTextSearchIndex {
 	idx := &FullTextSearchIndex{}
 
 	idx.Documents = make(map[int]*DocumContainer)
 	idx.Index = make(map[string]*RevIndex)
 	idx.StopWords = make(map[string]bool)
+	idx.FullTextSearchParams = params
 
 	for _, stopWord := range STOPWORDS {
 		idx.AddStopWord(stopWord)
@@ -64,8 +73,10 @@ func (idx *FullTextSearchIndex) IndexDoc(dc *DocumContainer) {
 			idx.Index[token] = NewRevIndex(token)
 		}
 		idx.Index[token].Add(dc.ID)
-		dc.Terms[token]++
+		dc.AddTerm(token)
 	}
+
+	dc.SetSimhash()
 }
 
 func (idx *FullTextSearchIndex) Search(query string, searchType SearchType, rank bool) []*DocumContainer {
@@ -86,12 +97,36 @@ func (idx *FullTextSearchIndex) Search(query string, searchType SearchType, rank
 		}
 	}
 
+	simhashes := make([]uint64, 0)
+
 	for docId, occurance := range raw {
 		if occurance < len(tokens) && searchType == SearchTypeAND {
 			continue
 		}
 		if doc, exists := idx.Documents[docId]; exists {
-			res = append(res, doc)
+			/*
+				Если в параметрах установлено
+				  ExcludeBySimhash = true и MinSimhashDistance > 0 (TODO check)
+				  в это случае проверять каждый документ из результата поиска на отличие по симхэш
+				  Time complexity: O(n^2), для оптимизации (если понадобиться) https://moz.com/devblog/near-duplicate-detection https://www2007.cpsc.ucalgary.ca/papers/paper215.pdf
+			*/
+			if len(simhashes) > 0 && idx.FullTextSearchParams.ExcludeBySimhash {
+				for _, Simhash := range simhashes {
+					if simhash.Compare(Simhash, doc.Simhash) > idx.FullTextSearchParams.MinSimhashDistance {
+						simhashes = append(simhashes, doc.Simhash)
+						res = append(res, doc)
+						break
+					}
+
+				}
+			} else {
+				simhashes = append(simhashes, doc.Simhash)
+				res = append(res, doc)
+			}
+		}
+
+		if idx.FullTextSearchParams.MaxSearchResults > 0 && len(res) == idx.FullTextSearchParams.MaxSearchResults {
+			break
 		}
 	}
 
