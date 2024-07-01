@@ -36,6 +36,7 @@ func NewDocumContainer(docum Document) *DocumContainer {
 	dc.Tokens = make([]string, 0)
 	dc.Document = docum
 	dc.ID = docum.GetID()
+	dc.Score = 0.0
 
 	return dc
 }

@@ -79,14 +79,15 @@ func (idx *FullTextSearchIndex) IndexDoc(dc *DocumContainer) {
 	dc.SetSimhash()
 }
 
-func (idx *FullTextSearchIndex) Search(query string, searchType SearchType, rank bool) []*DocumContainer {
-	res := make([]*DocumContainer, 0)
+func (idx *FullTextSearchIndex) Search(query string, searchType SearchType, rank bool) SearchResult {
+	res := SearchResult{Total: 0, Documents: make([]*SearchResultDocumentContainer, 0)}
 
 	if searchType != SearchTypeAND && searchType != SearchTypeOR {
 		return res
 	}
 
 	tokens := idx.GetTokens(query)
+	res.Tokens = tokens
 
 	raw := make(map[int]int)
 	for _, token := range tokens {
@@ -100,7 +101,7 @@ func (idx *FullTextSearchIndex) Search(query string, searchType SearchType, rank
 	simhashes := make([]uint64, 0)
 
 	for docId, occurance := range raw {
-		if occurance < len(tokens) && searchType == SearchTypeAND {
+		if searchType == SearchTypeAND && occurance < len(tokens) {
 			continue
 		}
 		if doc, exists := idx.Documents[docId]; exists {
@@ -110,34 +111,44 @@ func (idx *FullTextSearchIndex) Search(query string, searchType SearchType, rank
 				  в это случае проверять каждый документ из результата поиска на отличие по симхэш
 				  Time complexity: O(n^2), для оптимизации (если понадобиться) https://moz.com/devblog/near-duplicate-detection https://www2007.cpsc.ucalgary.ca/papers/paper215.pdf
 			*/
-			if len(simhashes) > 0 && idx.FullTextSearchParams.ExcludeBySimhash {
+			if idx.FullTextSearchParams.ExcludeBySimhash && len(simhashes) > 0 {
+				/*
+					Для каждого из сохранненых уже симхэшей сверяем расстояние
+					Если расстояние меньше или равно MinSimhashDistance, тогда
+				*/
+				hasNearDuplicate := false
 				for _, Simhash := range simhashes {
-					if simhash.Compare(Simhash, doc.Simhash) > idx.FullTextSearchParams.MinSimhashDistance {
-						simhashes = append(simhashes, doc.Simhash)
-						res = append(res, doc)
+					if simhash.Compare(Simhash, doc.Simhash) <= idx.FullTextSearchParams.MinSimhashDistance {
+						hasNearDuplicate = true
 						break
 					}
-
+					/* Есл */
+				}
+				if !hasNearDuplicate {
+					simhashes = append(simhashes, doc.Simhash)
+					res.Documents = append(res.Documents, &SearchResultDocumentContainer{Doc: doc, Score: 0.0})
 				}
 			} else {
 				simhashes = append(simhashes, doc.Simhash)
-				res = append(res, doc)
+				res.Documents = append(res.Documents, &SearchResultDocumentContainer{Doc: doc, Score: 0.0})
 			}
-		}
-
-		if idx.FullTextSearchParams.MaxSearchResults > 0 && len(res) == idx.FullTextSearchParams.MaxSearchResults {
-			break
 		}
 	}
 
 	if rank {
-		idx.Rank(tokens, res)
+		idx.Rank(tokens, res.Documents)
+	}
+
+	if idx.FullTextSearchParams.MaxSearchResults > 0 {
+		if len(res.Documents) > idx.FullTextSearchParams.MaxSearchResults {
+			res.Documents = res.Documents[0:idx.FullTextSearchParams.MaxSearchResults]
+		}
 	}
 
 	return res
 }
 
-func (idx *FullTextSearchIndex) Rank(tokens []string, docs []*DocumContainer) {
+func (idx *FullTextSearchIndex) Rank(tokens []string, docs []*SearchResultDocumentContainer) {
 	if len(docs) == 0 {
 		return
 	}
@@ -148,12 +159,12 @@ func (idx *FullTextSearchIndex) Rank(tokens []string, docs []*DocumContainer) {
 			// invDocFreq := idx.InvDocFreq(token)
 			// fmt.Println(termFreq)
 			// fmt.Println(invDocFreq)
-			doc.Score += float64(doc.TermFreq(token)) * idx.InvDocFreq(token)
+			doc.Score += float64(doc.Doc.TermFreq(token)) * idx.InvDocFreq(token)
 		}
 	}
 
 	slices.SortFunc(docs,
-		func(a, b *DocumContainer) int {
+		func(a, b *SearchResultDocumentContainer) int {
 			return cmp.Compare(b.Score, a.Score)
 		})
 }
