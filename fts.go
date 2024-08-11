@@ -2,6 +2,7 @@ package fts
 
 import (
 	"cmp"
+	"fmt"
 	"math"
 	"slices"
 	"strings"
@@ -21,14 +22,16 @@ type FullTextSearchParams struct {
 	ExcludeBySimhash   bool
 	MinSimhashDistance uint8
 	MaxSearchResults   int
+	UseStemming        bool
+	UseNgrams          bool
 }
 
 type FullTextSearchIndex struct {
 	Documents            map[int]*DocumContainer
 	Index                map[string]*RevIndex
-	Stemmer              *stemmer.Stemmer
 	StopWords            map[string]bool
 	FullTextSearchParams FullTextSearchParams
+	Stemmer              *stemmer.Stemmer
 }
 
 func NewFullTextSearchIndex(params FullTextSearchParams) *FullTextSearchIndex {
@@ -188,15 +191,30 @@ func (idx *FullTextSearchIndex) InvDocFreq(token string) float64 {
 
 func (fts *FullTextSearchIndex) GetTokens(text string) []string {
 	words := strings.Fields(strings.ToLower(text))
-	res := make([]string, 0)
+	cleanWords := make([]string, 0)
 
 	for _, word := range words {
-		word := fts.Stemmer.StemWord(word)
+		if fts.FullTextSearchParams.UseStemming {
+			word = fts.Stemmer.StemWord(word)
+		}
 		if _, exists := fts.StopWords[word]; exists {
 			continue
 		}
-		res = append(res, word)
+		cleanWords = append(cleanWords, word)
 	}
+
+	res := make([]string, 0)
+
+	if fts.FullTextSearchParams.UseNgrams {
+		for i := 0; i < len(cleanWords)-2; i++ {
+			res = append(res, fmt.Sprintf("%s %s %s", cleanWords[i], cleanWords[i+1], cleanWords[i+2]))
+		}
+
+		for i := 0; i < len(cleanWords)-1; i++ {
+			res = append(res, fmt.Sprintf("%s %s", cleanWords[i], cleanWords[i+1]))
+		}
+	}
+	res = append(res, cleanWords...)
 
 	return res
 }

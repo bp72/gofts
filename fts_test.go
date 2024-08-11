@@ -23,6 +23,7 @@ func TestGetTokens(t *testing.T) {
 		ExcludeBySimhash:   true,
 		MaxSearchResults:   150,
 		MinSimhashDistance: 4,
+		UseStemming:        true,
 	}
 	fts := NewFullTextSearchIndex(params)
 	tokens := fts.GetTokens("You and me toWer")
@@ -49,6 +50,25 @@ func TestGetTokens(t *testing.T) {
 	if !reflect.DeepEqual(tokens, expect) {
 		t.Fatalf("Test GetTokens failed. Expected %v. Got: %v", tokens, expect)
 	}
+
+	// Check GetTokens with Ngrams
+	fts.FullTextSearchParams.UseNgrams = true
+	tokens = fts.GetTokens("CHECK STEMMER APPLES You and me toWers")
+	expect = []string{"check stemmer appl", "check stemmer", "stemmer appl", "check", "stemmer", "appl"}
+	if !reflect.DeepEqual(tokens, expect) {
+		t.Fatalf("Test GetTokens failed. Expected %v. Got: %v", tokens, expect)
+	}
+
+	tokens = fts.GetTokens("CHECK")
+	expect = []string{"check"}
+	if !reflect.DeepEqual(tokens, expect) {
+		t.Fatalf("Test GetTokens failed. Expected %v. Got: %v", tokens, expect)
+	}
+	tokens = fts.GetTokens("CHECK cook")
+	expect = []string{"check cook", "check", "cook"}
+	if !reflect.DeepEqual(tokens, expect) {
+		t.Fatalf("Test GetTokens failed. Expected %v. Got: %v", tokens, expect)
+	}
 }
 
 func TestIndexDoc(t *testing.T) {
@@ -56,6 +76,7 @@ func TestIndexDoc(t *testing.T) {
 		ExcludeBySimhash:   true,
 		MinSimhashDistance: 4,
 		MaxSearchResults:   150,
+		UseStemming:        true,
 	}
 	fts := NewFullTextSearchIndex(params)
 
@@ -92,11 +113,60 @@ func TestIndexDoc(t *testing.T) {
 	}
 }
 
+func TestIndexDocNgrams(t *testing.T) {
+	params := FullTextSearchParams{
+		ExcludeBySimhash:   true,
+		MinSimhashDistance: 4,
+		MaxSearchResults:   150,
+		UseStemming:        true,
+		UseNgrams:          true,
+	}
+	fts := NewFullTextSearchIndex(params)
+
+	DocTexts := []string{
+		"You and me toWer",
+		"CHECK STEMMER APPLES You and me TOWERS",
+	}
+
+	for pos, text := range DocTexts {
+		dc := NewDocumContainer(&TestDocument{ID: pos + 1, Text: text})
+		fts.IndexDoc(dc)
+
+		if len(fts.Documents) != dc.ID {
+			t.Fatalf("Test IndexDoc failed. Expected size %d. Got: %d", dc.ID, fts.DocCount())
+		}
+	}
+
+	Terms := map[string]int{
+		"stemmer appl tower": 1,
+		"check stemmer appl": 1,
+		"check stemmer":      1,
+		"stemmer appl":       1,
+		"appl tower":         1,
+		"tower":              2,
+		"check":              1,
+		"stemmer":            1,
+		"appl":               1,
+	}
+
+	for term, ri := range fts.Index {
+		if expected, exists := Terms[term]; exists {
+			if expected != ri.Freq() {
+				t.Fatalf("Test 'RevIndex By Term '%s' Size' failed. Expected %d, got %d", term, expected, ri.Freq())
+			}
+		} else {
+			t.Fatalf("Test 'RevIndex By Term '%s' Size' failed. Expected to exist.", term)
+		}
+
+	}
+}
+
 func TestSearchResult(t *testing.T) {
 	params := FullTextSearchParams{
 		ExcludeBySimhash:   true,
 		MinSimhashDistance: 4,
 		MaxSearchResults:   150,
+		UseStemming:        true,
 	}
 	fts := NewFullTextSearchIndex(params)
 
@@ -131,6 +201,61 @@ func TestSearchResult(t *testing.T) {
 
 	if len(searchResult.Documents) != 2 {
 		t.Fatalf("Test 'Search' failed. Expected size %d. Got: %d", 2, len(searchResult.Documents))
+	}
+
+	searchResult = fts.Search("apple tower", SearchTypeOR, false)
+
+	if len(searchResult.Documents) != 3 {
+		t.Fatalf("Test 'Search' failed. Expected size %d. Got: %d", 3, len(searchResult.Documents))
+	}
+
+	// for _, docum := range searchResult.Documents {
+	// 	fmt.Printf("doc='%s' score=%f\n", docum.Doc.AsText(), docum.Score)
+	// }
+}
+
+func TestSearchResultNgram(t *testing.T) {
+	params := FullTextSearchParams{
+		ExcludeBySimhash:   true,
+		MinSimhashDistance: 4,
+		MaxSearchResults:   150,
+		UseStemming:        true,
+		UseNgrams:          true,
+	}
+	fts := NewFullTextSearchIndex(params)
+
+	DocTexts := []string{
+		"You and me toWer",
+		"CHECK STEMMER APPLES You and me TOWERS",
+		"APPLE builds the TOWER and phones tower tower",
+		"Empty doc",
+	}
+
+	for pos, text := range DocTexts {
+		dc := NewDocumContainer(&TestDocument{ID: pos + 1, Text: text})
+		fts.IndexDoc(dc)
+
+		if len(fts.Documents) != dc.ID {
+			t.Fatalf("Test IndexDoc failed. Expected size %d. Got: %d", dc.ID, fts.DocCount())
+		}
+	}
+
+	expectedTokens := []string{"appl tower", "appl", "tower"}
+	searchResult := fts.Search("apPle the toWer", SearchTypeAND, true)
+
+	if len(searchResult.Tokens) != len(expectedTokens) {
+		t.Fatalf("Test 'SearchResult' failed. Tokens expected size %d. Got: %d", len(expectedTokens), len(searchResult.Tokens))
+	}
+
+	for i := 0; i < len(expectedTokens); i++ {
+		if searchResult.Tokens[i] != expectedTokens[i] {
+			t.Fatalf("Test 'SearchResult' failed. Token expected %s. Got: %s", expectedTokens[i], searchResult.Tokens[i])
+		}
+	}
+
+	expectedDocCount := 1
+	if len(searchResult.Documents) != expectedDocCount {
+		t.Fatalf("Test 'Search' failed. Expected size %d. Got: %d", expectedDocCount, len(searchResult.Documents))
 	}
 
 	searchResult = fts.Search("apple tower", SearchTypeOR, false)
