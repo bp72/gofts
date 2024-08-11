@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 
+	fts "github.com/bp72/gofts"
 	"github.com/mfonda/simhash"
 	stemmer "github.com/rjohnsondev/golibstemmer"
 )
@@ -206,15 +207,58 @@ func (fts *FullTextSearchIndex) GetTokens(text string) []string {
 	res := make([]string, 0)
 
 	if fts.FullTextSearchParams.UseNgrams {
-		for i := 0; i < len(cleanWords)-2; i++ {
-			res = append(res, fmt.Sprintf("%s %s %s", cleanWords[i], cleanWords[i+1], cleanWords[i+2]))
-		}
-
-		for i := 0; i < len(cleanWords)-1; i++ {
-			res = append(res, fmt.Sprintf("%s %s", cleanWords[i], cleanWords[i+1]))
-		}
+		res = append(res, fts.GetNgramTokens(cleanWords)...)
 	}
 	res = append(res, cleanWords...)
+
+	return res
+}
+
+func (idx *FullTextSearchIndex) GetNgramTokens(tokens []string) []string {
+	res := make([]string, 0)
+
+	for i := 0; i < len(tokens)-2; i++ {
+		res = append(res, fmt.Sprintf("%s %s %s", tokens[i], tokens[i+1], tokens[i+2]))
+	}
+
+	for i := 0; i < len(tokens)-1; i++ {
+		res = append(res, fmt.Sprintf("%s %s", tokens[i], tokens[i+1]))
+	}
+
+	return res
+}
+
+func (idx *FullTextSearchIndex) SearchNgram(query string) SearchResult {
+	res := SearchResult{Total: 0, Documents: make([]*SearchResultDocumentContainer, 0)}
+	fts.FullTextSearchParams.UseNgrams = false
+	tokens := idx.GetTokens(query)
+	fts.FullTextSearchParams.UseNgrams = true
+	ngrams := idx.GetNgramTokens(tokens)
+	res.Tokens = ngrams
+
+	fmt.Println(ngrams)
+
+	raw := make(map[int]int)
+	for _, token := range tokens {
+		if ri, exists := idx.Index[token]; exists {
+			for doc := range ri.Index {
+				raw[doc]++
+			}
+		}
+	}
+
+	for docId, _ := range raw {
+		if doc, exists := idx.Documents[docId]; exists {
+			res.Documents = append(res.Documents, &SearchResultDocumentContainer{Doc: doc, Score: 0.0})
+
+		}
+	}
+
+	if idx.FullTextSearchParams.MaxSearchResults > 0 {
+		if len(res.Documents) > idx.FullTextSearchParams.MaxSearchResults {
+			res.Documents = res.Documents[0:idx.FullTextSearchParams.MaxSearchResults]
+		}
+	}
 
 	return res
 }
