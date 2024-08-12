@@ -316,7 +316,7 @@ func TestSearchResultNgramStandalone(t *testing.T) {
 
 }
 
-func TestSearchQuery(t *testing.T) {
+func TestSearchQueryNgramOnly(t *testing.T) {
 	params := FullTextSearchParams{
 		ExcludeBySimhash:   true,
 		MinSimhashDistance: 4,
@@ -360,12 +360,7 @@ func TestSearchQuery(t *testing.T) {
 
 	for _, testDoc := range testDocs {
 		dc := NewDocumContainer(testDoc)
-		// fts.IndexDoc(dc)
 		fts.IndexDocQueryParser(dc, qp)
-
-		// if len(fts.Documents) != dc.ID {
-		// 	t.Fatalf("Test IndexDoc failed. Expected size %d. Got: %d", dc.ID, fts.DocCount())
-		// }
 	}
 
 	for testNo, testCase := range testCases {
@@ -374,6 +369,78 @@ func TestSearchQuery(t *testing.T) {
 
 		if len(searchResult.Documents) != len(testCase.SearchResult) {
 			fmt.Println(q)
+			t.Fatalf("Test 'TestSearchQueryNgramOnly' failed %d. Token expected %d. Got: %d", testNo, len(testCase.SearchResult), len(searchResult.Documents))
+		}
+
+		got := make(map[*TestDocument]bool)
+		expected := make(map[*TestDocument]bool)
+		for pos, docContainer := range searchResult.Documents {
+			testDoc := docContainer.Doc.Document.(*TestDocument)
+			got[testDoc] = true
+			expected[testCase.SearchResult[pos]] = true
+		}
+
+		if !reflect.DeepEqual(got, expected) {
+			t.Fatalf("Test 'TestSearchQueryNgramOnly' failed %d. Expected %v got: %v", testNo, got, testCase.SearchResult)
+		}
+	}
+}
+
+func TestSearchQuery(t *testing.T) {
+	params := FullTextSearchParams{
+		ExcludeBySimhash:   true,
+		MinSimhashDistance: 4,
+		MaxSearchResults:   150,
+		UseStemming:        true,
+		UseNgrams:          true,
+	}
+	fts := NewFullTextSearchIndex(params)
+
+	testDocs := []*TestDocument{
+		{ID: 1, Text: "stopword-1 aaa stopword-2 bbb stopword-3 ccc stopword-4 ddd stopword-5"},
+		{ID: 2, Text: "stopword-1 aaa bbb stopword-3 ccc stopword-4 ddd stopword-5"},
+		{ID: 3, Text: "stopword-1 aaa bbb ccc stopword-4 ddd stopword-5"},
+		{ID: 4, Text: "stopword-1 aaa stopword-4 bbb ccc ddd stopword-5"},
+		{ID: 5, Text: "stopword-1 aaa bbb stopword-4 ccc ddd stopword-5"},
+		{ID: 6, Text: "stopword-1 aaa bbb ccc ddd stopword-5"},
+		{ID: 7, Text: "stopword-1 aaa ccc ddd stopword-5"},
+		{ID: 8, Text: "stopword-1 aaa bbb ddd stopword-5"},
+	}
+
+	type TestCase struct {
+		Query        string
+		SearchResult []*TestDocument
+	}
+
+	testCases := []TestCase{
+		{Query: "aaa stopword-2 bbb", SearchResult: []*TestDocument{}},
+		{Query: "bbb ccc stopword-2", SearchResult: []*TestDocument{testDocs[0], testDocs[1], testDocs[2], testDocs[3], testDocs[4], testDocs[5]}},
+		{Query: "aaa bbb", SearchResult: []*TestDocument{testDocs[0], testDocs[1], testDocs[2], testDocs[3], testDocs[4], testDocs[5], testDocs[7]}},
+		{Query: "stopword-1 aaa bbb stopword-1", SearchResult: []*TestDocument{testDocs[0], testDocs[1], testDocs[2], testDocs[3], testDocs[4], testDocs[5], testDocs[7]}},
+	}
+
+	qp := NewQueryParser("english", true)
+
+	for stopWord, _ := range fts.StopWords {
+		qp.stopWords[stopWord] = true
+	}
+
+	for i := 0; i < 100; i++ {
+		fts.AddStopWord(fmt.Sprintf("stopword-%d", i))
+		qp.stopWords[fmt.Sprintf("stopword-%d", i)] = true
+	}
+
+	for _, testDoc := range testDocs {
+		dc := NewDocumContainer(testDoc)
+		fts.IndexDoc(dc)
+		fts.IndexDocQueryParser(dc, qp)
+	}
+
+	for testNo, testCase := range testCases {
+		q := qp.ParseQuery(testCase.Query)
+		searchResult := fts.SearchQuery(q)
+
+		if len(searchResult.Documents) != len(testCase.SearchResult) {
 			t.Fatalf("Test 'TestSearchQuery' failed %d. Token expected %d. Got: %d", testNo, len(testCase.SearchResult), len(searchResult.Documents))
 		}
 
