@@ -7,7 +7,6 @@ import (
 	"slices"
 	"strings"
 
-	fts "github.com/bp72/gofts"
 	"github.com/mfonda/simhash"
 	stemmer "github.com/rjohnsondev/golibstemmer"
 )
@@ -81,6 +80,22 @@ func (idx *FullTextSearchIndex) IndexDoc(dc *DocumContainer) {
 	}
 
 	dc.SetSimhash()
+}
+
+func (idx *FullTextSearchIndex) IndexDocQueryParser(dc *DocumContainer, qp *QueryParser) {
+	if _, exists := idx.Documents[dc.ID]; !exists {
+		idx.Documents[dc.ID] = dc
+	}
+
+	q := qp.ParseQuery(dc.AsText())
+
+	for _, ngram := range q.Ngrams {
+		if _, exists := idx.Index[ngram]; !exists {
+			idx.Index[ngram] = NewRevIndex(ngram)
+		}
+		idx.Index[ngram].Add(dc.ID)
+		dc.AddTerm(ngram)
+	}
 }
 
 func (idx *FullTextSearchIndex) Search(query string, searchType SearchType, rank bool) SearchResult {
@@ -230,19 +245,51 @@ func (idx *FullTextSearchIndex) GetNgramTokens(tokens []string) []string {
 
 func (idx *FullTextSearchIndex) SearchNgram(query string) SearchResult {
 	res := SearchResult{Total: 0, Documents: make([]*SearchResultDocumentContainer, 0)}
-	fts.FullTextSearchParams.UseNgrams = false
+	idx.FullTextSearchParams.UseNgrams = false
 	tokens := idx.GetTokens(query)
-	fts.FullTextSearchParams.UseNgrams = true
+	// idx.FullTextSearchParams.UseNgrams = true
 	ngrams := idx.GetNgramTokens(tokens)
 	res.Tokens = ngrams
 
-	fmt.Println(ngrams)
-
 	raw := make(map[int]int)
-	for _, token := range tokens {
+	for _, token := range ngrams {
+		// fmt.Printf("searching token '%s'\n", token)
 		if ri, exists := idx.Index[token]; exists {
 			for doc := range ri.Index {
 				raw[doc]++
+				// fmt.Printf("\tfound %d\n", doc)
+			}
+		}
+	}
+
+	for docId, _ := range raw {
+		if doc, exists := idx.Documents[docId]; exists {
+			res.Documents = append(res.Documents, &SearchResultDocumentContainer{Doc: doc, Score: 0.0})
+
+		}
+	}
+
+	if idx.FullTextSearchParams.MaxSearchResults > 0 {
+		if len(res.Documents) > idx.FullTextSearchParams.MaxSearchResults {
+			res.Documents = res.Documents[0:idx.FullTextSearchParams.MaxSearchResults]
+		}
+	}
+
+	return res
+}
+
+func (idx *FullTextSearchIndex) SearchQuery(query Query) SearchResult {
+	res := SearchResult{Total: 0, Documents: make([]*SearchResultDocumentContainer, 0)}
+
+	res.Tokens = query.Ngrams
+	raw := make(map[int]int)
+
+	for _, token := range query.Ngrams {
+		// fmt.Printf("searching token '%s'\n", token)
+		if ri, exists := idx.Index[token]; exists {
+			for doc := range ri.Index {
+				raw[doc]++
+				// fmt.Printf("\tfound %d\n", doc)
 			}
 		}
 	}

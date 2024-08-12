@@ -1,6 +1,7 @@
 package fts
 
 import (
+	"fmt"
 	"reflect"
 	"testing"
 )
@@ -267,4 +268,125 @@ func TestSearchResultNgram(t *testing.T) {
 	// for _, docum := range searchResult.Documents {
 	// 	fmt.Printf("doc='%s' score=%f\n", docum.Doc.AsText(), docum.Score)
 	// }
+}
+
+func TestSearchResultNgramStandalone(t *testing.T) {
+	params := FullTextSearchParams{
+		ExcludeBySimhash:   true,
+		MinSimhashDistance: 4,
+		MaxSearchResults:   150,
+		UseStemming:        true,
+		UseNgrams:          true,
+	}
+	fts := NewFullTextSearchIndex(params)
+
+	DocTexts := []string{
+		"You and me toWer",
+		"CHECK STEMMER APPLES You and me TOWERS",
+		"APPLE builds the TOWER and phones tower tower",
+		"Empty doc",
+	}
+
+	for pos, text := range DocTexts {
+		dc := NewDocumContainer(&TestDocument{ID: pos + 1, Text: text})
+		fts.IndexDoc(dc)
+
+		if len(fts.Documents) != dc.ID {
+			t.Fatalf("Test IndexDoc failed. Expected size %d. Got: %d", dc.ID, fts.DocCount())
+		}
+	}
+
+	expectedTokens := []string{"appl tower"}
+	searchResult := fts.SearchNgram("apPle the toWer")
+
+	if len(searchResult.Tokens) != len(expectedTokens) {
+		t.Fatalf("Test 'SearchResult' failed. Tokens expected size %d. Got: %d", len(expectedTokens), len(searchResult.Tokens))
+	}
+
+	for i := 0; i < len(expectedTokens); i++ {
+		if searchResult.Tokens[i] != expectedTokens[i] {
+			t.Fatalf("Test 'SearchResult' failed. Token expected %s. Got: %s", expectedTokens[i], searchResult.Tokens[i])
+		}
+	}
+
+	expectedDocCount := 1
+	if len(searchResult.Documents) != expectedDocCount {
+		t.Fatalf("Test 'Search' failed. Expected size %d. Got: %d", expectedDocCount, len(searchResult.Documents))
+	}
+
+}
+
+func TestSearchQuery(t *testing.T) {
+	params := FullTextSearchParams{
+		ExcludeBySimhash:   true,
+		MinSimhashDistance: 4,
+		MaxSearchResults:   150,
+		UseStemming:        true,
+		UseNgrams:          true,
+	}
+	fts := NewFullTextSearchIndex(params)
+
+	testDocs := []*TestDocument{
+		{ID: 1, Text: "stopword-1 aaa stopword-2 bbb stopword-3 ccc stopword-4 ddd stopword-5"},
+		{ID: 2, Text: "stopword-1 aaa bbb stopword-3 ccc stopword-4 ddd stopword-5"},
+		{ID: 3, Text: "stopword-1 aaa bbb ccc stopword-4 ddd stopword-5"},
+		{ID: 4, Text: "stopword-1 aaa stopword-4 bbb ccc ddd stopword-5"},
+		{ID: 5, Text: "stopword-1 aaa bbb stopword-4 ccc ddd stopword-5"},
+		{ID: 6, Text: "stopword-1 aaa bbb ccc ddd stopword-5"},
+	}
+
+	type TestCase struct {
+		Query        string
+		SearchResult []*TestDocument
+	}
+
+	testCases := []TestCase{
+		{Query: "aaa stopword-2 bbb", SearchResult: []*TestDocument{}},
+		{Query: "aaa bbb stopword-2", SearchResult: []*TestDocument{testDocs[1], testDocs[2], testDocs[4], testDocs[5]}},
+		{Query: "aaa bbb", SearchResult: []*TestDocument{testDocs[1], testDocs[2], testDocs[4], testDocs[5]}},
+		{Query: "stopword-1 aaa bbb stopword-1", SearchResult: []*TestDocument{testDocs[1], testDocs[2], testDocs[4], testDocs[5]}},
+	}
+
+	qp := NewQueryParser("english", true)
+
+	for stopWord, _ := range fts.StopWords {
+		qp.stopWords[stopWord] = true
+	}
+
+	for i := 0; i < 100; i++ {
+		fts.AddStopWord(fmt.Sprintf("stopword-%d", i))
+		qp.stopWords[fmt.Sprintf("stopword-%d", i)] = true
+	}
+
+	for _, testDoc := range testDocs {
+		dc := NewDocumContainer(testDoc)
+		// fts.IndexDoc(dc)
+		fts.IndexDocQueryParser(dc, qp)
+
+		// if len(fts.Documents) != dc.ID {
+		// 	t.Fatalf("Test IndexDoc failed. Expected size %d. Got: %d", dc.ID, fts.DocCount())
+		// }
+	}
+
+	for testNo, testCase := range testCases {
+		q := qp.ParseQuery(testCase.Query)
+		searchResult := fts.SearchQuery(q)
+
+		if len(searchResult.Documents) != len(testCase.SearchResult) {
+			fmt.Println(q)
+			t.Fatalf("Test 'TestSearchQuery' failed %d. Token expected %d. Got: %d", testNo, len(testCase.SearchResult), len(searchResult.Documents))
+		}
+
+		got := make(map[*TestDocument]bool)
+		expected := make(map[*TestDocument]bool)
+		for pos, docContainer := range searchResult.Documents {
+			testDoc := docContainer.Doc.Document.(*TestDocument)
+			got[testDoc] = true
+			expected[testCase.SearchResult[pos]] = true
+		}
+
+		if !reflect.DeepEqual(got, expected) {
+			t.Fatalf("Test 'TestSearchQuery' failed %d. Expected %v got: %v", testNo, got, testCase.SearchResult)
+		}
+	}
 }
